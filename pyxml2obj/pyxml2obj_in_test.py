@@ -4,7 +4,7 @@
 import unittest
 from pyxml2obj import XMLin
 
-class Xml2objTest(unittest.TestCase):
+class Xml2objInTest(unittest.TestCase):
 
   def testSimpleXML(self):
     expected = {'name1':'value1',
@@ -312,6 +312,7 @@ class Xml2objTest(unittest.TestCase):
     self.assertEqual(opt, {
       'attr'    : 'value',
       'content' : 'text content'})
+    
 
   def testJapaneseNode(self):
     xml = '''

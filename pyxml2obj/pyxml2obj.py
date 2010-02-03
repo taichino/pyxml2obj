@@ -10,17 +10,21 @@ def XMLin(content, options={}):
   obj.XMLin(content)
   return obj.tree
 
+def XMLout(tree, options={}):
+  obj = xml2obj(options)
+  xml = obj.XMLout(tree)
+  return xml
+
 StrictMode  = 0
 KnownOptIn  = 'keyattr keeproot forcecontent contentkey noattr \
-               forcearray cache suppressempty parseropts \
-               grouptags nsexpand datahandler varattr variables \
+               forcearray grouptags \
                normalizespace valueattr'.split()
 KnownOptOut = 'keyattr keeproot contentkey noattr \
                rootname xmldecl outputfile noescape suppressempty \
                grouptags nsexpand handler noindent attrindent nosort \
                valueattr numericescape'.split()
 DefKeyAttr     = 'name key id'.split()
-DefRootName    = 'opt'
+DefRootName    = 'root'
 DefContentKey  = 'content'
 DefXmlDecl     = "<?xml version='1.0' standalone='yes'?>"
 
@@ -78,7 +82,7 @@ class xml2obj(ContentHandler):
     else:
       self.opt['rootname'] = DefRootName
       
-    if 'xmldecl' in self.opt and self.opt['xmldecl'] == '1':
+    if 'xmldecl' in self.opt and str(self.opt['xmldecl']) == '1':
       self.opt['xmldecl'] = DefXmlDecl
       
     if 'contentkey' in self.opt:
@@ -107,7 +111,7 @@ class xml2obj(ContentHandler):
         # Convert keyattr : {elem: '+attr'}
         # to keyattr : {elem: ['attr', '+']}
         for el in self.opt['keyattr']:
-          m = re.match('^(\+|-)?(.*)$', self.opt['keyattr'][el])
+          m = re.match(r'^(\+|-)?(.*)$', self.opt['keyattr'][el])
           if m:
             self.opt['keyattr'][el] = [m.group(2), m.group(1)]
             if self.opt['forcearray'] == 1:
@@ -297,7 +301,200 @@ class xml2obj(ContentHandler):
       hash[key] = hash[key][contentkey]
 
     return hash
+
+
+  def XMLout(self, tree, options={}):
+    self.handle_options('out', options)
+
+    # wrap to level list in a hash
+    if isinstance(tree, list):
+      tree = {'anon' : tree}
+
+    # extract rootname from top level if keeproot enabled
+    if 'keeproot' in self.opt and self.opt['keeproot']:
+      keys = tree.keys()
+      if len(tree) == 1:
+        tree = tree[keys[0]]
+        self.opt['rootname'] = keys[0]
+    # ensure there are no top level attributes
+    elif self.opt['rootname'] == '':
+      if isinstance(tree, dict):
+        treesave = tree
+        tree = {}
+        for key in treesave:
+          if isinstance(treesave[key], dict) or isinstance(treesave[key], list):
+            tree[key] = treesave[key]
+          else:
+            tree[key] = [treesave[key]]
+
+    # encode the tree
+    self._ancestors = []
+    xml = self.value_to_xml(tree, self.opt['rootname'], '')
+    del self._ancestors
+    if 'xmldecl' in self.opt and self.opt['xmldecl']:
+      xml = self.opt['xmldecl'] + '\n' + xml
+    
+    return xml
+
+  def value_to_xml(self, tree, name, indent):
+    named = len(name) and 1 or 0
+    nl = '\n'
+    is_root = len(indent) == 0 and 1 or 0
+    if 'noindent' in self.opt and self.opt['noindent']:
+      indent = nl = ''
+
+    # convert to xml
+    if isinstance(tree, list) or isinstance(tree, dict):
+      if len([elem for elem in self._ancestors if elem == tree]):
+        raise ValueError("circular data structures not supported")
+      self._ancestors.append(tree)
+    else:
+      if named:
+        content = tree if 'noescape' in self.opt else self.escape_value(tree)
+        line = '%(indent)s<%(name)s>%(content)s</%(name)s>%(nl)s' % locals()
+        return line
+      else:
+        return str(tree) + nl
+
+    # unfold hash to array if possible
+    if isinstance(tree, dict) and len(tree) and self.opt['keyattr'] and not is_root:
+      tree = self.hash_to_array(name, tree)
+
+    result = []
+
+    #handle hash
+    if isinstance(tree, dict):
+      # reintermediate grouped valued if applicable
+      if 'grouptags' in self.opt and self.opt['grouptags']:
+        tree = self.copy_hash(tree)
+        for key, val in tree:
+          if key in self.opt['grouptags']:
+            tree[key] = { self.opt['grouptags'][key] : val }
       
+      nsdecls = ''
+      default_ns_url = '';
+      nested = []
+      text_content = None
+      if named:
+        result.extend([indent, '<', name, nsdecls])
+
+      if len(tree):
+        first_arg = 1
+        for key in self.sorted_keys(name, tree):
+          value = tree[key]
+          if not value:
+            if key[0] == '-':
+              continue
+            if key == self.opt['contentkey']:
+              text_context = ''
+            else:
+              value = ''
+
+          if not isinstance(value, dict) and not isinstance(value, list):
+            if 'valueattr' in self.opt and self.opt['valueattr']:
+              if key in self.opt['valueattr'] and self.opt['valueattr'][key]:
+                value = {self.opt['valueattr'][key] : value}
+
+          if isinstance(value, dict) or isinstance(value, list) or 'noattr' in self.opt:
+            nested.append(self.value_to_xml(value, key, indent + '  '))
+          else:
+            if not ('noescape' in self.opt and self.opt['noescape']):
+              value = self.escape_value(value)
+            if key == self.opt['contentkey']:
+              text_context = value
+            else:
+              if 'attrindent' in self.opt and not first_arg:
+                result.append('\n%s ' % (indent) + ' ' * len(name))
+              result.extend([' ', key, '="', value, '"'])
+              first_arg = 0
+      else:
+        text_context = ''
+
+      if nested or text_content is not None:
+        if named:
+          result.append('>')
+          if text_content is not None:
+            result.append(text_content)
+            if len(nested):
+              nested[0].lstrip()
+          else:
+            result.append(nl)
+            if len(nested):
+              result.extend(nested)
+              result.append(indent)
+            result.extend(['</', name, '>', nl])
+        else:
+          result.extend(nested)
+      else:
+        result.extend([' />', nl])
+    # handle array
+    elif isinstance(tree, list):
+      for value in tree:
+        if not isinstance(value, dict) and not isinstance(value, list):
+          result.extend([indent, '<', name, '>', value \
+                           if 'noescape' in self.opt and self.opt['noescape'] else self.escape_value(value),
+                         '</', name, '>' + nl])
+        elif isinstance(value, dict):
+          result.append(self.value_to_xml(value, name, indent))
+        else:
+          result.extend([indent, '<', name, '>' + nl,
+                         self.value_to_xml(value, 'anon', indent + '  '),
+                         indent, '</', name, '>' + nl])
+    else:
+      raise ValueError("Can't encode a value of type: " + tree.__class__)
+
+    if isinstance(tree, dict) or isinstance(tree, list):
+      self._ancestors.pop()
+
+    return ''.join(result)
+
+  def sorted_keys(self, name, tree):
+    hash = tree.copy()
+    keyattr = self.opt['keyattr']
+    key = []
+
+    if isinstance(tree, dict):
+      if name in keyattr and  keyattr[name][0] in hash:
+        key.append(keyattr[name][0])
+        del hash[keyattr[name][0]]
+    elif isinstance(tree, list):
+      for item in keyattr:
+        if item in hash:
+          key.append(item)
+          del hash[item]
+          break
+
+    if len(hash) > 0:
+      tmp = hash.keys()
+      tmp.sort()
+      key.extend(tmp)
+    return key
+
+  def escape_value(self, data):
+    if data is None:
+      return ''
+    data = str(data)
+    data = data.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;')
+    return data
+
+  def hash_to_array(self, parent, hash):
+    array = []
+    for key in hash:
+      value = hash[key]
+      if not isinstance(value, dict):
+        return hash
+      if isinstance(self.opt['keyattr'], dict):
+        if not parent in self.opt['keyattr']:
+          return hash
+        array.append(self.copy_hash(value, [self.opt['keyattr'][parent][0], key]))
+      else:
+        array.append(self.copy_hash(value, [self.opt['keyattr'][0], key]))
+    return array
+
+  def copy_hash(self, orig, extra):
+    result = orig.copy()
+    result.update(dict(zip(extra[::2], extra[1::2])))
+    return result
       
   #
   # following methods overwrite ContentHandler
@@ -357,5 +554,39 @@ if __name__ == '__main__':
     '''
   opt = XMLin(xml, {'keyattr':{'car':'license', 'option':'pn'}, 'contentkey':'-content'})
   print opt
+
+  hash1 = {'one': 1, 'two': 'II', 'three': '...'}
+  xml = XMLout(hash1)
+
+  tree = {'array' : ['one', 'two', 'three']}
+  expect = '''
+    <root>
+      <array>one</array>
+      <array>two</array>
+      <array>three</array>
+    </root>
+    '''
+  xml = XMLout(tree)
+
+  tree = { 'country' : {
+      'England' : { 'capital' : 'London' },
+      'France'  : { 'capital' : 'Paris' },
+      'Turkey'  : { 'capital' : 'Istanbul' },
+      }}
+  expected = r'''
+^\s*<(\w+)\s*>\s*
+(
+   <country(\s*fullname="Turkey"  |\s*capital="Istanbul" ){2}\s*/>\s*
+  |<country(\s*fullname="France"  |\s*capital="Paris"    ){2}\s*/>\s*
+  |<country(\s*fullname="England" |\s*capital="London"   ){2}\s*/>\s*
+){3}
+</\1>\s*$
+'''
+  xml = XMLout(tree, {'keyattr':{'country':'fullname'}})
+  xml = XMLout(tree, {'keyattr':{'country':'+fullname'}})
+
+  
+  
   
 
+  
