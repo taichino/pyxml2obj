@@ -17,17 +17,13 @@ def XMLout(tree, options={}):
 
 StrictMode  = 0
 KnownOptIn  = 'keyattr keeproot forcecontent contentkey noattr \
-               forcearray grouptags \
-               normalizespace valueattr'.split()
+               forcearray grouptags normalizespace valueattr'.split()
 KnownOptOut = 'keyattr keeproot contentkey noattr \
-               rootname xmldecl outputfile noescape suppressempty \
-               grouptags nsexpand handler noindent attrindent nosort \
-               valueattr numericescape'.split()
+               rootname xmldecl noescape grouptags valueattr'.split()
 DefKeyAttr     = 'name key id'.split()
 DefRootName    = 'root'
 DefContentKey  = 'content'
 DefXmlDecl     = "<?xml version='1.0' standalone='yes'?>"
-
 
 class xml2obj(ContentHandler):
 
@@ -130,6 +126,14 @@ class xml2obj(ContentHandler):
       if StrictMode:
         raise ValueError("No value specified for 'KeyAttr' option in call to XML%s()" % (dirn,))
       self.opt['keyattr'] = DefKeyAttr
+
+    # make sure there's nothing weired in grouptags
+    if hasattr(self.opt, 'grouptags'):
+      if not isinstance(self.opt['grouptags'], dict):
+        raise ValueError("Illegal value for 'GroupTags' option - expected a dictionary")
+      for key, val in self.opt['grouptags']:
+        if key == val:
+          raise ValueError("Bad value in GroupTags: '%s' => '%s'" % (key, val))
 
     if 'valiables' in self.opt:
       self._var_values = self.opt['variables']
@@ -366,8 +370,8 @@ class xml2obj(ContentHandler):
     if isinstance(tree, dict):
       # reintermediate grouped valued if applicable
       if 'grouptags' in self.opt and self.opt['grouptags']:
-        tree = self.copy_hash(tree)
-        for key, val in tree:
+        tree = tree.copy() #self.copy_hash(tree)
+        for key, val in tree.items():
           if key in self.opt['grouptags']:
             tree[key] = { self.opt['grouptags'][key] : val }
       
@@ -386,7 +390,7 @@ class xml2obj(ContentHandler):
             if key[0] == '-':
               continue
             if key == self.opt['contentkey']:
-              text_context = ''
+              text_content = ''
             else:
               value = ''
 
@@ -401,14 +405,12 @@ class xml2obj(ContentHandler):
             if not ('noescape' in self.opt and self.opt['noescape']):
               value = self.escape_value(value)
             if key == self.opt['contentkey']:
-              text_context = value
+              text_content = value
             else:
-              if 'attrindent' in self.opt and not first_arg:
-                result.append('\n%s ' % (indent) + ' ' * len(name))
               result.extend([' ', key, '="', value, '"'])
               first_arg = 0
       else:
-        text_context = ''
+        text_content = ''
 
       if nested or text_content is not None:
         if named:
@@ -419,10 +421,10 @@ class xml2obj(ContentHandler):
               nested[0].lstrip()
           else:
             result.append(nl)
-            if len(nested):
-              result.extend(nested)
-              result.append(indent)
-            result.extend(['</', name, '>', nl])
+          if len(nested):
+            result.extend(nested)
+            result.append(indent)
+          result.extend(['</', name, '>', nl])
         else:
           result.extend(nested)
       else:
@@ -584,6 +586,10 @@ if __name__ == '__main__':
 '''
   xml = XMLout(tree, {'keyattr':{'country':'fullname'}})
   xml = XMLout(tree, {'keyattr':{'country':'+fullname'}})
+
+  tree = { 'one' : 1, 'content' : 'text' }
+  xml = XMLout(tree)
+
 
   
   
