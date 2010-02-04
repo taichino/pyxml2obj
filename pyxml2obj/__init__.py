@@ -39,7 +39,7 @@ In current version, following options are supported
 """
 
 __author__  = "Matsumoto Taichi (taichino@gmail.com)"
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __license__ = "MIT License"
 
 from pyxml2obj import *
