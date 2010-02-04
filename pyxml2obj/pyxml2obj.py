@@ -94,7 +94,14 @@ class xml2obj(ContentHandler):
 
     # special cleanup for forcearray
     if 'forcearray' in self.opt:
-      pass
+      if isinstance(self.opt['forcearray'], list):
+        force_list = self.opt['forcearray']
+        if len(force_list) > 0:
+          self.opt['forcearray'] = {}
+          for tag in force_list:
+            self.opt['forcearray'][tag] = 1
+        else:
+          self.opt['forcearray'] = 0
     else:
       self.opt['forcearray'] = 0
 

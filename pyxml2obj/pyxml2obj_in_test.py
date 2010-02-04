@@ -312,7 +312,23 @@ class Xml2objInTest(unittest.TestCase):
     self.assertEqual(opt, {
       'attr'    : 'value',
       'content' : 'text content'})
-    
+
+  def test_forcearray(self):
+    xml = '''
+    <opt zero="0">
+      <one>i</one>
+      <two>ii</two>
+      <three>iii</three>
+      <three>3</three>
+      <three>c</three>
+    </opt>    
+    '''
+    opt = XMLin(xml, {'forcearray':['two']})
+    self.assertEqual(opt, {
+      'zero'  : '0',
+      'one'   : 'i',
+      'two'   : [ 'ii' ],
+      'three' : [ 'iii', '3', 'c' ]})
 
   def testJapaneseNode(self):
     xml = '''
